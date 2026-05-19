@@ -6,9 +6,16 @@ on:
   pull_request:
     branches: [main]
 
+# Fix 6: Add concurrency group at workflow level
+concurrency:
+  group: ${{ github.ref }}-pipeline
+  cancel-in-progress: true
+
 jobs:
   lint:
     runs-on: ubuntu-latest
+    # Fix 4: Add timeout-minutes to all jobs
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,7 +25,11 @@ jobs:
       - run: npm run lint
 
   unit-tests:
+    # Fix 1: Add needs declarations to all jobs
+    needs: lint
     runs-on: ubuntu-latest
+    # Fix 4: Add timeout-minutes to all jobs
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -28,7 +39,11 @@ jobs:
       - run: npm test
 
   build:
+    # Fix 1: Add needs declarations to all jobs
+    needs: lint
     runs-on: ubuntu-latest
+    # Fix 4: Add timeout-minutes to all jobs
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,32 +51,63 @@ jobs:
           node-version: '20'
       - run: npm ci
       - run: npm run build
-      # Problem 4: no upload-artifact step — dist/ is never saved
+      # Fix 2: Add artifact upload to build
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-build
+          path: dist/
+          retention-days: 3
 
   integration-tests:
+    # Fix 1: Add needs declarations to all jobs
+    needs: build
     runs-on: ubuntu-latest
+    # Fix 4: Add timeout-minutes to all jobs
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
       - run: npm ci
-      # Problem 2: no download-artifact — dist/ does not exist on this machine
+      # Fix 2: Add artifact download to integration-tests
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-build
+          path: dist/
       - run: npm run test:integration
 
   deploy-staging:
+    # Fix 1: Add needs declarations to all jobs
+    needs: [unit-tests, integration-tests]
     runs-on: ubuntu-latest
-    # Problem 3: no if condition — runs on every branch
+    # Fix 4: Add timeout-minutes to all jobs
+    timeout-minutes: 15
+    # Fix 3: Add if conditions to deploy jobs
+    if: success() && github.ref == 'refs/heads/main'
     steps:
       - run: echo "Deploying to staging environment"
 
   deploy-production:
+    # Fix 1: Add needs declarations to all jobs
+    needs: deploy-staging
     runs-on: ubuntu-latest
+    # Fix 4: Add timeout-minutes to all jobs
+    timeout-minutes: 15
+    # Fix 3: Add if conditions to deploy jobs
+    if: success() && github.ref == 'refs/heads/main'
     steps:
       - run: echo "Deploying to production environment"
 
   notify:
+    # Fix 1: Add needs declarations to all jobs
+    needs: [unit-tests, integration-tests, deploy-staging]
     runs-on: ubuntu-latest
-    # Problem 6: no if: always() — skipped when upstream fails
+    # Fix 4: Add timeout-minutes to all jobs
+    timeout-minutes: 5
+    # Fix 5: Add if: always() to notify
+    if: always()
     steps:
       - run: echo "Pipeline notification sent"
